@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>confessional</title>
+<meta name="description" content="anonymously drop images of early artworks you would never want anyone to see">
+<style>
+  /* ---------------------------------------------------------------
+     SETTINGS: paste your Google Apps Script web app URL in the
+     <script> part at the bottom (const SCRIPT_URL = "...").
+     --------------------------------------------------------------- */
+  :root{
+    --cream:#f1e6d6;
+    --cream-dim:rgba(241,230,214,.72);
+    --cream-faint:rgba(241,230,214,.5);
+    --shadow:0 1px 2px rgba(0,0,0,.55);
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  [hidden]{display:none !important}
+  html{background:#3a1f10 url("wood.jpg") center top / 100% auto repeat-y}
+  @media (max-aspect-ratio:1233/776){ html{background-size:auto 776px;background-repeat:repeat} }
+  body{min-height:100vh;font-family:var(--sans);color:var(--cream);text-shadow:var(--shadow);
+       display:flex;justify-content:center;padding:clamp(40px,9vh,110px) 18px 34px}
+  .col{width:min(1240px,100%);display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(40px,6vw,90px);align-items:start}
+  .left{display:flex;flex-direction:column;align-items:stretch;position:sticky;top:clamp(40px,9vh,110px);align-self:start}
+  .right{display:flex;flex-direction:column;min-height:calc(100vh - clamp(40px,9vh,110px) - 34px)}
+  .right h1{margin-top:-0.09em}
+  @media (max-width:860px){
+    .col{grid-template-columns:1fr;width:min(620px,100%);gap:0}
+    .left{position:static}
+    .right{min-height:0}
+    .right h1,.right .sub,.right .how,.right footer,.right .me{text-align:center;justify-content:center}
+    .right .how{text-align:left}
+    .right h1{margin-top:clamp(34px,6vh,58px)}
+    .right footer{margin-top:clamp(50px,9vh,90px)}
+  }
+
+  /* ---- the frame (box) ---- */
+  .frame{position:relative;min-height:clamp(240px,40vh,370px);
+    border-style:solid;border-width:14px 13px 15px 13px;
+    border-image-source:url("frame.png");border-image-slice:75 68 50 66 fill;
+    border-image-width:75px 68px 50px 66px;border-image-repeat:stretch;
+    display:flex;flex-direction:column;cursor:pointer;transition:filter .2s}
+  .frame.over{filter:brightness(1.35)}
+  .frame.busy,.frame.has{cursor:default}
+  .inner{flex:1;display:flex;flex-direction:column;padding:44px 46px 34px}
+
+  .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;gap:10px;color:var(--cream-dim);font-size:17px;line-height:1.4}
+  .empty small{font-size:12.5px;color:var(--cream-faint);letter-spacing:.02em}
+
+  .list{list-style:none;display:flex;flex-direction:column;gap:14px}
+  .item{display:flex;gap:14px;align-items:stretch}
+  .thumb{width:84px;height:84px;flex:none;border-radius:3px;background:#1a0705 center/cover no-repeat;
+    box-shadow:0 2px 8px rgba(0,0,0,.6)}
+  .item.loading .thumb{background-image:none;animation:pulse 1.1s ease-in-out infinite}
+  @keyframes pulse{50%{background-color:#3a1712}}
+  .item textarea{flex:1;min-height:84px;resize:vertical;background:rgba(0,0,0,.22);
+    border:1px solid rgba(241,230,214,.14);border-radius:3px;color:var(--cream);
+    font:15px/1.4 var(--sans);padding:10px 12px;outline:none}
+  .item textarea::placeholder{color:var(--cream-faint)}
+  .item textarea:focus{border-color:rgba(241,230,214,.4)}
+  .rm{flex:none;align-self:flex-start;width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;
+    background:rgba(0,0,0,.3);color:var(--cream-dim);font-size:18px;line-height:28px}
+  .rm:hover{color:var(--cream)}
+  .add{margin-top:16px;align-self:center;width:44px;height:44px;border-radius:50%;cursor:pointer;
+    border:1px dashed rgba(241,230,214,.4);background:transparent;color:var(--cream-dim);font-size:22px}
+  .add:hover{border-style:solid;color:var(--cream)}
+
+  .done{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px}
+  .done p{color:var(--cream-dim);font-size:15px}
+  .codes{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 28px;margin:14px 0 18px}
+  .code{font-family:var(--serif);font-size:clamp(44px,9vw,76px);letter-spacing:.14em;color:var(--cream)}
+  .again{background:none;border:none;border-bottom:1px solid var(--cream-faint);color:var(--cream-dim);
+    font:13px var(--sans);letter-spacing:.18em;text-transform:uppercase;cursor:pointer;padding-bottom:3px;text-shadow:var(--shadow)}
+
+  .hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+
+  /* ---- button (NGL-style pill) ---- */
+  .send{text-shadow:none;margin-top:22px;height:62px;border:none;border-radius:999px;background:#0b0605;color:#fff;
+    font:600 20px var(--sans);letter-spacing:.04em;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45);transition:transform .1s,opacity .2s}
+  .send:hover{transform:translateY(-1px)}
+  .send:disabled{opacity:.45;cursor:default;transform:none}
+  .status{min-height:22px;margin-top:10px;text-align:center;font-size:14px;color:var(--cream-dim)}
+
+  /* ---- text under the frame ---- */
+  h1{text-align:left;font-family:var(--serif);font-weight:400;
+     font-size:clamp(46px,9vw,74px);letter-spacing:.02em;line-height:1}
+  .sub{margin:16px 0 0;max-width:470px;text-align:left;font-family:var(--serif);font-style:italic;
+     font-size:clamp(17px,2.6vw,20px);line-height:1.4;color:var(--cream-dim)}
+  .how{margin:36px 0 0;max-width:470px;font-size:15px;line-height:1.55;color:var(--cream)}
+  .how ol{margin-top:12px;padding-left:22px}
+  .how li{margin-bottom:5px}
+
+  footer{margin-top:auto;padding-top:50px;text-align:left}
+  .me{display:flex;justify-content:flex-start;align-items:center;gap:14px;flex-wrap:wrap;font-size:14px;color:var(--cream)}
+  .me a{color:var(--cream);text-decoration:none;border-bottom:1px solid var(--cream-faint)}
+  .me a.ig{border:none;display:inline-flex;opacity:.9}
+  .me a.ig:hover{opacity:1}
+  .fine{margin:18px 0 0;max-width:560px;font-size:10.5px;line-height:1.55;color:var(--cream-faint)}
+  .fine + .fine{margin-top:8px}
+</style>
+</head>
+<body>
+<main class="col">
+
+  <section class="left">
+  <form class="frame" id="box" autocomplete="off" onsubmit="return false">
+    <input type="file" id="picker" multiple hidden
+      accept="image/jpeg,image/png,image/heic,image/heif,.jpg,.jpeg,.png,.heic,.heif">
+    <input type="text" name="website" class="hp" tabindex="-1" aria-hidden="true" id="hp">
+    <div class="inner">
+      <div class="empty" id="empty">
+        Drag your images here, or click to choose files
+        <small>JPG, PNG or HEIC · max. 10 MB per image</small>
+      </div>
+      <ul class="list" id="list" hidden></ul>
+      <button type="button" class="add" id="add" hidden aria-label="add more images">+</button>
+      <div class="done" id="done" hidden>
+        <p id="thanks">thank you. your work is called:</p>
+        <div class="codes" id="codes"></div>
+        <button type="button" class="again" id="again">drop another</button>
+      </div>
+    </div>
+  </form>
+
+  <button class="send" id="send" disabled>confess</button>
+  <p class="status" id="status" aria-live="polite"></p>
+  </section>
+
+  <section class="right">
+
+  <h1>confessional</h1>
+  <p class="sub">anonymously drop images of early artworks you would never want anyone to see</p>
+
+  <div class="how">
+    <p>The images might be used for an exhibition and/or publication.</p>
+    <ol>
+      <li>Choose works you made at 16 or older.</li>
+      <li>Blur traces of you if you mind.</li>
+      <li>Drop into the confessional. Hidden data will be removed.</li>
+      <li>Add a few words if you like.</li>
+      <li>You get a 5-character code. It's the work's title. Keep it if you want to.</li>
+    </ol>
+  </div>
+
+  <footer>
+    <div class="me">
+      <span>Alysha Lahner</span>
+      <a href="mailto:whichwayalysha@gmail.com">whichwayalysha@gmail.com</a>
+      <a class="ig" href="https://www.instagram.com/whichwayalysha/" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f1e6d6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r=".6" fill="#f1e6d6"/>
+        </svg>
+      </a>
+    </div>
+    <p class="fine">No names, emails or locations are collected (hosts may log IP addresses, which I can't see). Check your image for traces of you. By uploading, you confirm you made the work, are 18+, and agree it may be shown in an exhibition and/or publication. Copyright stays yours. Not every upload will be shown. Images and texts are stored on Google Drive (possibly US servers) only for this project, based on your consent (Art. 6(1)(a) GDPR). To delete your work, email its code (printed copies can't be recalled). Complaints: LDI NRW.</p>
+  </footer>
+  </section>
+</main>
+
+<script>
+/* ===== SETTINGS ===== */
+// Paste your Google Apps Script web app URL here (see SETUP.md).
+// While it's empty, the page runs in demo mode: nothing is uploaded, codes are fake.
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzVT9ZCsVKrbRPO9_hfIkXwtxuZX-h3zgvin1KoHkUZOfex_HAJ8-Z-2onLp23evarW/exec";
+const MAX_MB = 10;
+const MAX_SIDE = 8000;          // longest side in pixels after cleaning
+const JPEG_QUALITY = 0.92;
+const HEIC_LIB = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
+/* ==================== */
+
+const $ = id => document.getElementById(id);
+const box = $("box"), picker = $("picker"), list = $("list"), empty = $("empty"),
+      addBtn = $("add"), done = $("done"), send = $("send"), statusEl = $("status");
+let items = [];          // {id, blob, li, textarea}
+let busy = false, finished = false, pending = 0;
+
+const say = t => statusEl.textContent = t || "";
+
+function refresh(){
+  const has = items.length > 0 || pending > 0;
+  empty.hidden = has || finished;
+  list.hidden = !has || finished;
+  addBtn.hidden = !has || finished || busy;
+  done.hidden = !finished;
+  box.classList.toggle("has", has || finished);
+  send.hidden = finished;
+  send.disabled = busy || pending > 0 || items.length === 0;
+}
+
+/* ---- open picker / drag & drop (whole page accepts drops) ---- */
+box.addEventListener("click", e => {
+  if (busy || finished) return;
+  if (e.target === box || e.target.closest("#empty") || e.target === addBtn) picker.click();
+});
+picker.addEventListener("change", () => { addFiles(picker.files); picker.value = ""; });
+let dragDepth = 0;
+window.addEventListener("dragenter", e => { e.preventDefault(); if (!busy && !finished) { dragDepth++; box.classList.add("over"); } });
+window.addEventListener("dragleave", e => { if (--dragDepth <= 0) { dragDepth = 0; box.classList.remove("over"); } });
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", e => {
+  e.preventDefault(); dragDepth = 0; box.classList.remove("over");
+  if (!busy && !finished && e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+});
+
+/* ---- add + clean files ---- */
+function kind(file){
+  const n = (file.name || "").toLowerCase(), t = (file.type || "").toLowerCase();
+  if (t === "image/jpeg" || /\.jpe?g$/.test(n)) return "jpg";
+  if (t === "image/png" || /\.png$/.test(n)) return "png";
+  if (t === "image/heic" || t === "image/heif" || /\.hei[cf]$/.test(n)) return "heic";
+  return null;
+}
+
+function addFiles(fileList){
+  say("");
+  for (const file of fileList){
+    const k = kind(file);
+    if (!k){ say("only JPG, PNG or HEIC, please."); continue; }
+    if (file.size > MAX_MB * 1024 * 1024){ say(`max. ${MAX_MB} MB per image, please.`); continue; }
+    const li = document.createElement("li");
+    li.className = "item loading";
+    li.innerHTML = `<div class="thumb"></div><textarea maxlength="2000" placeholder="add a few words (optional)"></textarea><button type="button" class="rm" aria-label="remove">×</button>`;
+    list.appendChild(li);
+    const entry = { id: Math.random().toString(36).slice(2), blob: null, li, textarea: li.querySelector("textarea") };
+    li.querySelector(".rm").onclick = () => { if (busy) return; li.remove(); items = items.filter(x => x !== entry); refresh(); };
+    pending++; refresh();
+    clean(file, k).then(blob => {
+      entry.blob = blob;
+      li.classList.remove("loading");
+      li.querySelector(".thumb").style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
+      if (li.isConnected) items.push(entry);
+    }).catch(() => {
+      li.remove();
+      say(k === "heic" ? "this HEIC couldn't be opened. please export it as JPG." : "this image couldn't be opened.");
+    }).finally(() => { pending--; refresh(); });
+  }
+}
+
+// Redraws the image on a canvas and exports a fresh JPEG.
+// The new file contains only pixels: no location, date, camera/phone or software data.
+async function clean(file, k){
+  let src = file;
+  let img;
+  try { img = await loadImage(src); }
+  catch (err){
+    if (k !== "heic") throw err;
+    await loadScript(HEIC_LIB);                       // only loaded when a HEIC can't be read natively
+    src = await window.heic2any({ blob: file, toType: "image/jpeg", quality: 0.95 });
+    if (Array.isArray(src)) src = src[0];
+    img = await loadImage(src);
+  }
+  let w = img.naturalWidth, h = img.naturalHeight;
+  const scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+  w = Math.round(w * scale); h = Math.round(h * scale);
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);   // transparent PNG areas become white
+  ctx.drawImage(img, 0, 0, w, h);                    // browsers apply the photo's rotation here
+  URL.revokeObjectURL(img.src);
+  return await new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error("export")), "image/jpeg", JPEG_QUALITY));
+}
+
+function loadImage(blob){
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => { URL.revokeObjectURL(im.src); rej(new Error("decode")); };
+    im.src = URL.createObjectURL(blob);
+  });
+}
+function loadScript(url){
+  if (window.heic2any) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = url; s.onload = res; s.onerror = rej;
+    s.referrerPolicy = "no-referrer";
+    document.head.appendChild(s);
+  });
+}
+function toBase64(blob){
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1]);
+    r.onerror = rej;
+    r.readAsDataURL(blob);
+  });
+}
+
+/* ---- confess (upload) ---- */
+send.addEventListener("click", async () => {
+  if (busy || !items.length) return;
+  busy = true; box.classList.add("busy"); refresh();
+  items.forEach(x => x.textarea.readOnly = true);
+  const codes = [];
+  try {
+    for (let i = 0; i < items.length; i++){
+      say(items.length > 1 ? `confessing ${i + 1} of ${items.length}…` : "confessing…");
+      const it = items[i];
+      const payload = { image: await toBase64(it.blob), text: it.textarea.value.trim(), website: $("hp").value };
+      codes.push(await upload(payload));
+    }
+    showCodes(codes);
+  } catch (err){
+    say("something went wrong. please try again.");
+    // keep the ones that already went through out of the list, so nothing is sent twice
+    items.splice(0, codes.length).forEach(x => x.li.remove());
+    items.forEach(x => x.textarea.readOnly = false);
+    if (codes.length) showPartial(codes);
+  } finally {
+    busy = false; box.classList.remove("busy"); refresh();
+  }
+});
+
+async function upload(payload){
+  if (!SCRIPT_URL){                                  // demo mode
+    await new Promise(r => setTimeout(r, 700));
+    return makeCode();
+  }
+  const r = await fetch(SCRIPT_URL, { method: "POST", body: JSON.stringify(payload) }); // text/plain: no preflight
+  const data = await r.json();
+  if (!data.ok || !data.code) throw new Error(data.error || "upload");
+  return data.code;
+}
+function makeCode(){
+  const a = "ABCDEFGHJKMNPQRSTUVWXYZ23456789", v = new Uint32Array(5);
+  crypto.getRandomValues(v);
+  return Array.from(v, n => a[n % a.length]).join("");
+}
+
+function showCodes(codes){
+  $("thanks").textContent = codes.length > 1 ? "thank you. your works are called:" : "thank you. your work is called:";
+  $("codes").innerHTML = codes.map(c => `<span class="code">${c}</span>`).join("");
+  items.forEach(x => x.li.remove()); items = [];
+  finished = true; say("");
+}
+function showPartial(codes){
+  statusEl.textContent = `sent so far: ${codes.join(", ")}. something went wrong with the rest. please try again.`;
+}
+
+$("again").addEventListener("click", () => { finished = false; say(""); refresh(); });
+refresh();
+</script>
+</body>
+</html>
